@@ -1,33 +1,64 @@
 import queue
+import json
 import socket
 import ssl
 import threading
 import time
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
 
 HOST = "127.0.0.1"
 PORT = 5000
 CERT_FILE = "server.crt"
 KEY_FILE = "server.key"
+QUESTIONS_FILE = "questions.json"
 
-questions = [
-    {
-        "question": "Capital of India?",
-        "options": ["A) Delhi", "B) Mumbai", "C) Chennai", "D) Kolkata"],
-        "answer": "A",
-    },
-    {
-        "question": "2 + 2 = ?",
-        "options": ["A) 3", "B) 4", "C) 5", "D) 6"],
-        "answer": "B",
-    },
-    {
-        "question": "Which planet is known as the Red Planet?",
-        "options": ["A) Venus", "B) Mars", "C) Jupiter", "D) Saturn"],
-        "answer": "B",
-    },
-]
+
+def load_questions(file_path):
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Questions file not found: {file_path}")
+
+    with path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not isinstance(data, list) or not data:
+        raise ValueError("Questions file must contain a non-empty JSON array.")
+
+    normalized = []
+    for index, item in enumerate(data, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"Question {index} must be a JSON object.")
+
+        question = str(item.get("question", "")).strip()
+        options = item.get("options")
+        answer = str(item.get("answer", "")).strip().upper()
+
+        if not question:
+            raise ValueError(f"Question {index} has empty 'question'.")
+
+        if not isinstance(options, list) or len(options) < 2:
+            raise ValueError(f"Question {index} must have at least 2 options.")
+
+        clean_options = [str(opt).strip() for opt in options]
+        if any(not opt for opt in clean_options):
+            raise ValueError(f"Question {index} has an empty option.")
+
+        valid_answers = {
+            opt.split(")", 1)[0].strip().upper()
+            for opt in clean_options
+            if ")" in opt
+        }
+        if answer not in valid_answers:
+            raise ValueError(
+                f"Question {index} answer '{answer}' is invalid. "
+                f"Expected one of: {', '.join(sorted(valid_answers))}"
+            )
+
+        normalized.append({"question": question, "options": clean_options, "answer": answer})
+
+    return normalized
 
 
 class QuizServerApp:
@@ -36,6 +67,8 @@ class QuizServerApp:
         self.master.title("Quiz Server Conductor (TLS)")
         self.master.geometry("800x500")
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        self.questions = load_questions(QUESTIONS_FILE)
 
         self.style = ttk.Style()
         self.style.theme_use("clam")
@@ -66,8 +99,8 @@ class QuizServerApp:
 
         self.q_var = tk.StringVar()
         self.q_dropdown = ttk.Combobox(self.controls_frame, textvariable=self.q_var, state="readonly", width=30)
-        self.q_dropdown["values"] = [f"Q{i + 1}: {q['question']}" for i, q in enumerate(questions)]
-        if questions:
+        self.q_dropdown["values"] = [f"Q{i + 1}: {q['question']}" for i, q in enumerate(self.questions)]
+        if self.questions:
             self.q_dropdown.current(0)
         self.q_dropdown.pack(side=tk.LEFT, padx=5)
 
@@ -372,10 +405,10 @@ class QuizServerApp:
                 except ValueError:
                     continue
 
-                if qid < 0 or qid >= len(questions):
+                if qid < 0 or qid >= len(self.questions):
                     continue
 
-                correct = questions[qid]["answer"]
+                correct = self.questions[qid]["answer"]
 
                 with self.lock:
                     if answer.upper() == correct:
@@ -391,7 +424,7 @@ class QuizServerApp:
             self.remove_client(client)
 
     def fire_question_thread(self, qid):
-        question = questions[qid]
+        question = self.questions[qid]
 
         self.log(f"Sending Question {qid + 1}...")
         self.update_status(f"Question {qid + 1} is running...", "blue")
@@ -451,5 +484,10 @@ class QuizServerApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = QuizServerApp(root)
+    try:
+        app = QuizServerApp(root)
+    except Exception as exc:
+        messagebox.showerror("Question Load Error", str(exc))
+        root.destroy()
+        raise SystemExit(1)
     root.mainloop()
