@@ -114,6 +114,10 @@ class QuizClientApp:
                     messagebox.showerror("Kicked", "You have been kicked by the server.")
                     self.stop_connection()
                     self.show_frame("LoginFrame")
+                elif msg_type == "USERNAME_TAKEN":
+                    messagebox.showerror("Username Taken", msg["data"])
+                    self.stop_connection()
+                    self.show_frame("LoginFrame")
                 elif msg_type == "DISCONNECT":
                     messagebox.showerror("Disconnected", "Lost connection to the server.")
                     self.stop_connection()
@@ -200,6 +204,10 @@ class QuizClientApp:
             for msg in lines:
                 if msg == "KICK":
                     self.ui_queue.put({"type": "KICK"})
+                elif msg.startswith("USERNAME_TAKEN|"):
+                    self.ui_queue.put(
+                        {"type": "USERNAME_TAKEN", "data": msg.split("|", 1)[1]}
+                    )
                 elif msg.startswith("STARTING|"):
                     self.ui_queue.put({"type": "STARTING", "data": msg})
                 elif msg.startswith("QUESTION|"):

@@ -380,6 +380,13 @@ class QuizServerApp:
             return
 
         with self.lock:
+            existing_names = {name.casefold() for name in self.usernames.values()}
+            if username.casefold() in existing_names:
+                self.log(f"Rejected duplicate username: {username}")
+                self.send_line(client, "USERNAME_TAKEN|Username already in use.")
+                self.remove_client(client)
+                return
+
             self.usernames[client] = username
             if username not in self.scores:
                 self.scores[username] = 0
